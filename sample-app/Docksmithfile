@@ -1,0 +1,16 @@
+# Docksmith sample application
+# Uses all six instructions: FROM, COPY, RUN, WORKDIR, ENV, CMD
+
+FROM python:slim
+
+WORKDIR /app
+
+ENV APP_NAME=DocksmithApp
+ENV APP_VERSION=1.0.0
+ENV GREETING=Hello
+
+COPY src /app
+
+RUN echo "Build complete. Files in /app:" && ls /app
+
+CMD ["python", "main.py"]
