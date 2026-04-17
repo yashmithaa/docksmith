@@ -564,6 +564,10 @@ func copyDir(src, dst string) error {
 			if err != nil {
 				return err
 			}
+			// Ensure parent directory exists before creating symlink
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				return err
+			}
 			os.Remove(destPath)
 			return os.Symlink(linkTarget, destPath)
 		}

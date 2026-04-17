@@ -2,6 +2,7 @@ package image
 
 import (
 	"archive/tar"
+	"compress/gzip"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -79,7 +80,8 @@ func CreateLayerTar(files map[string]string) (string, int64, error) {
 			return "", 0, err
 		}
 
-		if !info.IsDir() {
+		// Write content only for regular files, not for symlinks or device files
+		if info.Mode().IsRegular() {
 			f, err := os.Open(srcPath)
 			if err != nil {
 				_ = tw.Close()
@@ -125,6 +127,7 @@ func CreateLayerTar(files map[string]string) (string, int64, error) {
 
 // ExtractLayerTar extracts a layer tar archive into destDir.
 // Later layers overwrite earlier ones at the same path.
+// Handles both compressed (gzip) and uncompressed tar files.
 func ExtractLayerTar(digest, destDir string) error {
 	layerPath := filepath.Join(LayersDir(), digest)
 	f, err := os.Open(layerPath)
@@ -133,7 +136,20 @@ func ExtractLayerTar(digest, destDir string) error {
 	}
 	defer f.Close()
 
-	tr := tar.NewReader(f)
+	// Try to decompress with gzip; if it's not gzip, continue with raw bytes
+	gr, err := gzip.NewReader(f)
+	var reader io.Reader
+	if err != nil {
+		// Not gzip compressed, use raw file
+		// Reset file pointer to beginning
+		_, _ = f.Seek(0, 0)
+		reader = f
+	} else {
+		defer gr.Close()
+		reader = gr
+	}
+
+	tr := tar.NewReader(reader)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -170,12 +186,20 @@ func ExtractLayerTar(digest, destDir string) error {
 			}
 			_ = out.Close()
 		case tar.TypeSymlink:
+			// Ensure parent directory exists before creating symlink
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
 			_ = os.Remove(target)
 			if err := os.Symlink(hdr.Linkname, target); err != nil {
 				return err
 			}
 		case tar.TypeLink:
 			linkTarget := filepath.Join(destDir, filepath.Clean(hdr.Linkname))
+			// Ensure parent directory exists before creating hardlink
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
 			_ = os.Remove(target)
 			if err := os.Link(linkTarget, target); err != nil {
 				return err
